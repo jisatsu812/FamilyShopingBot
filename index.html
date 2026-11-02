@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Семейный список покупок</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #17212b);
+    --bg2: var(--tg-theme-secondary-bg-color, #232e3c);
+    --text: var(--tg-theme-text-color, #ffffff);
+    --hint: var(--tg-theme-hint-color, #708499);
+    --btn: var(--tg-theme-button-color, #5288c1);
+    --btn-text: var(--tg-theme-button-text-color, #ffffff);
+    --danger: #e5534b;
+    --anim: 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+    font-size: 16px; line-height: 1.4;
+    overscroll-behavior-y: none;
+  }
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes popIn { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+
+  /* Экран приветствия */
+  #welcome {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 32px 24px; text-align: center;
+    animation: fadeIn 0.4s ease-out;
+  }
+  #welcome .emoji { font-size: 72px; margin-bottom: 16px; animation: popIn 0.5s ease-out; }
+  #welcome h1 { font-size: 24px; margin: 0 0 16px; }
+  #welcome p { color: var(--hint); margin-bottom: 32px; max-width: 300px; }
+
+  .btn {
+    background: var(--btn); color: var(--btn-text); border: none; border-radius: 14px;
+    padding: 15px 24px; font-size: 16px; font-weight: 600; cursor: pointer;
+    width: 100%; max-width: 320px;
+    transition: transform 0.1s, opacity 0.2s, background 0.2s;
+  }
+  .btn:active { transform: scale(0.97); opacity: 0.9; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--hint); }
+  .btn-danger { background: transparent; color: var(--danger); border: none; }
+
+  /* Основное приложение */
+  #app { display: none; padding-bottom: calc(80px + var(--safe-bottom)); }
+
+  .header {
+    display: flex; align-items: center; gap: 12px; padding: 16px 20px;
+    animation: slideUp 0.3s ease-out;
+  }
+  .avatar {
+    width: 44px; height: 44px; border-radius: 50%; background: var(--btn); color: var(--btn-text);
+    display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px;
+    transition: transform 0.2s;
+  }
+  .avatar:active { transform: scale(0.9); }
+
+  .card {
+    background: var(--bg2); border-radius: 14px; padding: 16px; margin: 12px 16px;
+    animation: slideUp 0.3s ease-out;
+  }
+
+  /* Селектор */
+  #listSelector {
+    width: calc(100% - 32px); margin: 8px 16px; padding: 14px;
+    background: var(--bg2); color: var(--text); border: none; border-radius: 14px; font-size: 16px;
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23708499%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px top 50%;
+    background-size: 12px auto;
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+  #listSelector:focus { outline: none; background-color: #2a3645; }
+
+  /* Список */
+  #list { list-style: none; margin: 0; padding: 0 16px; }
+  #list li {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--bg2); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px;
+    transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
+    animation: slideUp 0.25s ease-out;
+    will-change: transform;
+  }
+  #list li:active { background: #2a3645; }
+
+  .item-check {
+    width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--hint);
+    background: transparent; color: var(--btn-text); font-size: 14px; font-weight: 700;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;
+    transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+    flex-shrink: 0;
+  }
+  .item-check:active { transform: scale(0.8); }
+  #list li.checked .item-check { background: var(--btn); border-color: var(--btn); transform: scale(1.05); }
+
+  .item-name {
+    flex: 1; cursor: pointer; word-break: break-word;
+    transition: color 0.2s, opacity 0.2s;
+    font-size: 16px;
+  }
+  #list li.checked .item-name { text-decoration: line-through; color: var(--hint); opacity: 0.7; }
+
+  .delete-btn {
+    background: transparent; border: none; font-size: 18px; cursor: pointer;
+    opacity: 0.6; transition: opacity 0.2s, transform 0.1s; padding: 4px;
+  }
+  .delete-btn:active { opacity: 1; transform: scale(0.9) rotate(10deg); }
+  .delete-btn.confirming { color: var(--danger); opacity: 1; font-weight: bold; }
+
+  /* Форма добавления */
+  .add-form {
+    display: flex; gap: 8px; padding: 8px 16px; position: sticky; bottom: calc(60px + var(--safe-bottom));
+    background: var(--bg); z-index: 5;
+  }
+  .add-form input {
+    flex: 1; background: var(--bg2); color: var(--text); border: none; border-radius: 14px;
+    padding: 14px; font-size: 16px; outline: none;
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+  .add-form input:focus { background: #2a3645; box-shadow: 0 0 0 1px var(--btn); }
+  .add-form button {
+    width: 52px; height: 52px; border: none; border-radius: 14px;
+    background: var(--btn); color: var(--btn-text); font-size: 26px; font-weight: 700; cursor: pointer;
+    transition: transform 0.1s, opacity 0.2s, background 0.2s;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .add-form button:active { transform: scale(0.9); opacity: 0.9; }
+  .add-form button:disabled { opacity: 0.5; background: var(--hint); }
+
+  /* Нижняя навигация */
+  .nav {
+    position: fixed; bottom: 0; left: 0; right: 0; display: flex;
+    background: var(--bg2); border-top: 1px solid rgba(255,255,255,0.06); z-index: 10;
+    padding-bottom: var(--safe-bottom);
+  }
+  .nav button {
+    flex: 1; background: transparent; border: none; color: var(--hint); padding: 12px;
+    font-size: 12px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px;
+    transition: color 0.2s, transform 0.1s;
+  }
+  .nav button:active { transform: scale(0.9); }
+  .nav button.active { color: var(--btn); }
+  .nav button span { font-size: 20px; transition: transform 0.2s; }
+  .nav button.active span { transform: translateY(-2px); }
+
+  /* Вкладки */
+  .view { display: none; animation: fadeIn 0.2s ease-out; }
+  .view.active { display: block; }
+
+  /* Статус */
+  #status {
+    position: fixed; bottom: calc(76px + var(--safe-bottom)); left: 0; right: 0;
+    text-align: center; font-size: 13px; color: var(--hint); padding: 0 16px; pointer-events: none;
+    z-index: 9; transition: opacity 0.3s, transform 0.3s;
+    transform: translateY(10px); opacity: 0;
+  }
+  #status.show { opacity: 1; transform: translateY(0); }
+
+  /* Приглашения */
+  .invite-card {
+    margin: 12px 16px; background: var(--bg2); border-radius: 14px; padding: 16px;
+    animation: slideUp 0.3s ease-out;
+  }
+  .invite-card p { margin: 0 0 12px; }
+  .invite-actions { display: flex; gap: 8px; }
+  .invite-actions button {
+    flex: 1; padding: 10px; border-radius: 10px; border: none; font-weight: 600;
+    cursor: pointer; transition: transform 0.1s, opacity 0.2s;
+  }
+  .invite-actions button:active { transform: scale(0.95); }
+  .btn-primary { background: var(--btn); color: var(--btn-text); }
+
+  /* Скелетоны */
+  .skeleton {
+    background: linear-gradient(90deg, var(--bg2) 25%, #2a3645 50%, var(--bg2) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite linear;
+    border-radius: 14px;
+  }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+</style>
+</head>
+<body>
+
+<!-- Экран приветствия -->
+<div id="welcome">
+  <div class="emoji">🛒</div>
+  <h1>Семейный список покупок</h1>
+  <p>Ведите общий список вместе с близкими — отмечайте купленное, добавляйте новое и делитесь корзиной.</p>
+  <button class="btn" id="startBtn">Начать</button>
+</div>
+
+<!-- Основное приложение -->
+<div id="app">
+  <div class="header">
+    <div class="avatar" id="avatar">?</div>
+    <h2 style="margin:0; font-size:20px;">Привет, <span id="headerName">друг</span>!</h2>
+  </div>
+
+  <!-- Вкладка: Список -->
+  <div id="viewList" class="view active">
+    <select id="listSelector"></select>
+    <ul id="list"></ul>
+    <form class="add-form" id="addForm">
+      <input type="text" id="itemInput" placeholder="Что купить?" autocomplete="off" maxlength="200">
+      <button type="submit" id="addBtn" aria-label="Добавить">+</button>
+    </form>
+  </div>
+
+  <!-- Вкладка: Уведомления -->
+  <div id="viewNotif" class="view">
+    <h3 style="padding: 16px 20px 0; margin: 0; color: var(--hint); font-size: 13px;">ПРИГЛАШЕНИЯ</h3>
+    <div id="invitesContainer">
+      <div class="invite-card skeleton" style="height:100px;"></div>
+    </div>
+  </div>
+
+  <!-- Вкладка: Настройки -->
+  <div id="viewSettings" class="view">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; padding: 8px 0;">
+        <span style="color:var(--hint);">Имя</span>
+        <span id="settingsName" style="font-weight:600;"></span>
+      </div>
+      <div style="display:flex; justify-content:space-between; padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.06);">
+        <span style="color:var(--hint);">Username</span>
+        <span id="settingsUsername" style="font-weight:600;"></span>
+      </div>
+    </div>
+    <div class="card">
+      <button class="btn" style="margin-bottom:8px; background: var(--bg); color: var(--text);" id="btnInvite">➕ Пригласить друга</button>
+      <button class="btn" style="margin-bottom:8px; background: var(--bg); color: var(--text);" id="btnFeedback">📝 Отправить отзыв</button>
+      <button class="btn btn-danger" style="background: var(--bg);" id="btnClear">🧹 Очистить корзину</button>
+    </div>
+  </div>
+
+  <div id="status"></div>
+
+  <!-- Навигация -->
+  <nav class="nav">
+    <button class="active" data-view="viewList"><span>🛒</span>Корзина</button>
+    <button data-view="viewNotif"><span>🔔</span>Уведомления</button>
+    <button data-view="viewSettings"><span>⚙️</span>Настройки</button>
+  </nav>
+</div>
+
+<script>
+  // Глобальная обработка ошибок
+  window.onerror = function(msg, url, line) {
+    var err = document.createElement('div');
+    err.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#e5534b;color:#fff;padding:10px;z-index:9999;font-size:12px;';
+    err.innerText = 'ОШИБКА: ' + msg + ' (строка ' + line + ')';
+    document.body.appendChild(err);
+  };
+
+  const tg = window.Telegram?.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
+
+  const tgUser = tg?.initDataUnsafe?.user;
+  const USER_ID = tgUser?.id || 12345;
+  const USERNAME = tgUser?.username || 'test_user';
+  const FIRST_NAME = tgUser?.first_name || 'Тест';
+  let currentListOwnerId = USER_ID;
+  let pollTimer = null;
+  let loadSeq = 0;
+  let deleteConfirmTimers = {};
+  let IS_ADMIN = false;
+
+  const $ = (id) => document.getElementById(id);
+
+  let statusTimeout;
+  const showStatus = (msg) => {
+    const el = $('status');
+    el.textContent = msg || '';
+    if (msg) {
+      el.classList.add('show');
+      clearTimeout(statusTimeout);
+      statusTimeout = setTimeout(() => el.classList.remove('show'), 3000);
+    } else {
+      el.classList.remove('show');
+    }
+  };
+
+  const haptic = (style = 'light') => {
+    if (tg?.HapticFeedback) {
+      try { tg.HapticFeedback.impactOccurred(style); } catch (e) {}
+    }
+  };
+
+  const api = async (url, opt = {}) => {
+    const res = await fetch(url, { ...opt, headers: { 'Content-Type': 'application/json', ...opt.headers } });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'Ошибка сети');
+    return data;
+  };
+
+  // Инициализация
+  $('startBtn').addEventListener('click', async () => {
+    haptic('medium');
+    $('welcome').style.display = 'none';
+    $('app').style.display = 'block';
+
+    try {
+      const loginResp = await api('/api/login', {
+        method: 'POST',
+        body: JSON.stringify({ id: USER_ID, username: USERNAME, first_name: FIRST_NAME })
+      });
+      IS_ADMIN = Boolean(loginResp?.is_admin);
+
+      $('avatar').textContent = FIRST_NAME[0].toUpperCase();
+      $('headerName').textContent = FIRST_NAME;
+      $('settingsName').textContent = FIRST_NAME;
+      $('settingsUsername').textContent = '@' + USERNAME;
+
+      await refreshAll();
+
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(() => {
+        loadList(true).catch(() => {});
+      }, 5000);
+    } catch (e) {
+      showStatus(e.message);
+    }
+  });
+
+  // Переключение вкладок
+  document.querySelectorAll('.nav button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      haptic('light');
+      document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      btn.classList.add('active');
+      $(btn.dataset.view).classList.add('active');
+
+      if (btn.dataset.view === 'viewNotif') loadInvites();
+      if (btn.dataset.view === 'viewList') loadList(true);
+    });
+  });
+
+  async function refreshAll() {
+    await Promise.all([loadFriends(), loadInvites(), loadList()]);
+  }
+
+  async function loadFriends() {
+    try {
+      const friends = await api(`/api/friends?user_id=${USER_ID}`);
+      const sel = $('listSelector');
+      const prevVal = sel.value;
+      sel.innerHTML = '<option value="self">⌂ Моя корзина</option>';
+      friends.forEach(f => sel.add(new Option('🤝 ' + f.name, f.id)));
+      if ([...sel.options].some(o => o.value === prevVal)) sel.value = prevVal;
+    } catch (e) { console.error(e); }
+  }
+
+  async function loadInvites() {
+    const cont = $('invitesContainer');
+    try {
+      const invites = await api(`/api/invites?user_id=${USER_ID}`);
+      cont.innerHTML = invites.length ? '' : '<p style="padding:16px;color:var(--hint);text-align:center;">Новых приглашений нет.</p>';
+
+      invites.forEach(inv => {
+        const card = document.createElement('div');
+        card.className = 'invite-card';
+        card.innerHTML = `<p>${inv.sender_name} приглашает вас в корзину</p>`;
+
+        const actions = document.createElement('div');
+        actions.className = 'invite-actions';
+
+        const btnAccept = document.createElement('button');
+        btnAccept.className = 'btn-primary';
+        btnAccept.textContent = 'Принять';
+        btnAccept.onclick = async () => {
+          haptic('medium');
+          btnAccept.textContent = '...';
+          try {
+            await api(`/api/invites/${inv.id}/accept?user_id=${USER_ID}`, { method: 'POST' });
+            await refreshAll();
+            showStatus('Приглашение принято');
+          } catch (e) {
+            showStatus(e.message);
+            btnAccept.textContent = 'Принять';
+          }
+        };
+
+        const btnDecline = document.createElement('button');
+        btnDecline.className = 'btn-secondary';
+        btnDecline.textContent = 'Отклонить';
+        btnDecline.onclick = async () => {
+          haptic('light');
+          btnDecline.textContent = '...';
+          try {
+            await api(`/api/invites/${inv.id}/decline?user_id=${USER_ID}`, { method: 'POST' });
+            await loadInvites();
+          } catch (e) {
+            showStatus(e.message);
+            btnDecline.textContent = 'Отклонить';
+          }
+        };
+
+        actions.appendChild(btnAccept);
+        actions.appendChild(btnDecline);
+        card.appendChild(actions);
+        cont.appendChild(card);
+      });
+    } catch (e) {
+      cont.innerHTML = `<p style="padding:16px;color:var(--danger);">${e.message}</p>`;
+    }
+  }
+
+  async function loadList(silent = false) {
+    const seq = ++loadSeq;
+    const list = $('list');
+
+    // Один компактный скелетон только при первой загрузке, если список ещё пуст.
+    // Никаких двух пустых строк перед строкой ввода.
+    if (!silent && list.children.length === 0) {
+      list.innerHTML = '<li class="skeleton" style="height:44px; margin-bottom:8px; list-style:none;"></li>';
+    }
+
+    try {
+      const items = await api(`/api/items?user_id=${USER_ID}&list_owner_id=${currentListOwnerId}`);
+      if (seq !== loadSeq) return;
+
+      // Проверка на изменения, чтобы не перерисовывать DOM зря
+      const currentData = Array.from(list.querySelectorAll('li[data-id]')).map(li => ({
+        id: Number(li.dataset.id),
+        checked: li.classList.contains('checked'),
+        name: li.querySelector('.item-name')?.textContent
+      }));
+
+      const isSame = items.length === currentData.length && items.every((item, i) =>
+        item.id === currentData[i].id && Boolean(item.checked) === currentData[i].checked && item.name === currentData[i].name
+      );
+
+      if (isSame) return;
+
+      list.innerHTML = items.length ? '' : '<li style="color:var(--hint);text-align:center;background:none;padding:24px;animation:none;">Пусто. Добавьте что-нибудь!</li>';
+
+      items.forEach((item, index) => {
+        const li = document.createElement('li');
+        li.dataset.id = item.id;
+        if (item.checked) li.classList.add('checked');
+        li.style.animationDelay = `${Math.min(index * 0.05, 0.3)}s`;
+
+        const btnCheck = document.createElement('button');
+        btnCheck.className = 'item-check';
+        btnCheck.textContent = item.checked ? '✓' : '';
+
+        const spanName = document.createElement('span');
+        spanName.className = 'item-name';
+        spanName.textContent = item.name;
+
+        const handleToggle = () => toggleItem(item.id, li.classList.contains('checked'), li, btnCheck);
+
+        btnCheck.onclick = handleToggle;
+        spanName.onclick = handleToggle;
+
+        const btnDel = document.createElement('button');
+        btnDel.className = 'delete-btn';
+        btnDel.textContent = '🗑';
+        btnDel.onclick = () => deleteItem(item.id, btnDel, li);
+
+        li.appendChild(btnCheck);
+        li.appendChild(spanName);
+        li.appendChild(btnDel);
+        list.appendChild(li);
+      });
+    } catch (e) {
+      if (seq !== loadSeq) return;
+      list.innerHTML = `<li style="color:var(--danger);text-align:center;background:none;padding:24px;animation:none;">${e.message}</li>`;
+    }
+  }
+
+  async function toggleItem(id, isCheckedNow, li, btnCheck) {
+    haptic('light');
+
+    const newChecked = !isCheckedNow;
+    li.classList.toggle('checked', newChecked);
+    btnCheck.textContent = newChecked ? '✓' : '';
+
+    try {
+      await api(`/api/items/${id}?user_id=${USER_ID}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ checked: newChecked })
+      });
+    } catch (e) {
+      li.classList.toggle('checked', isCheckedNow);
+      btnCheck.textContent = isCheckedNow ? '✓' : '';
+      showStatus(e.message);
+    }
+  }
+
+  async function deleteItem(id, btn, li) {
+    haptic('light');
+
+    if (!btn.classList.contains('confirming')) {
+      btn.classList.add('confirming');
+      btn.textContent = '✓?';
+      deleteConfirmTimers[id] = setTimeout(() => {
+        btn.classList.remove('confirming');
+        btn.textContent = '🗑';
+      }, 3000);
+      return;
+    }
+
+    clearTimeout(deleteConfirmTimers[id]);
+
+    li.style.animation = 'fadeIn 0.2s reverse forwards';
+    setTimeout(() => li.remove(), 200);
+
+    try {
+      await api(`/api/items/${id}?user_id=${USER_ID}`, { method: 'DELETE' });
+    } catch (e) {
+      showStatus(e.message);
+      loadList();
+    }
+  }
+
+  // Добавление
+  $('addForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = $('itemInput');
+    const name = input.value.trim();
+    if (!name) return;
+
+    haptic('medium');
+    const btn = $('addBtn');
+    input.value = '';
+    btn.disabled = true;
+    btn.textContent = '…';
+
+    try {
+      await api(`/api/items?user_id=${USER_ID}`, { method: 'POST', body: JSON.stringify({ name, list_owner_id: currentListOwnerId }) });
+      await loadList(true);
+    } catch (e) {
+      showStatus(e.message);
+      input.value = name;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '+';
+      input.focus();
+    }
+  });
+
+  $('listSelector').addEventListener('change', (e) => {
+    haptic('light');
+    currentListOwnerId = e.target.value === 'self' ? USER_ID : Number(e.target.value);
+    loadList();
+  });
+
+  $('btnInvite').addEventListener('click', async () => {
+    const username = prompt('Введите username друга:');
+    if (!username) return;
+    try {
+      await api('/api/invites/send', { method: 'POST', body: JSON.stringify({ sender_id: USER_ID, receiver_username: username.replace('@', '') }) });
+      showStatus('Приглашение отправлено!');
+    } catch (e) { showStatus(e.message); }
+  });
+
+  // Отзыв
+  $('btnFeedback').addEventListener('click', async () => {
+    const text = prompt('Опишите отзыв или проблему:');
+    if (!text || !text.trim()) return;
+    haptic('medium');
+    try {
+      await api('/api/feedback', {
+        method: 'POST',
+        body: JSON.stringify({ user_id: USER_ID, text: text.trim() })
+      });
+      showStatus('Спасибо! Отзыв отправлен.');
+    } catch (e) {
+      showStatus(e.message);
+    }
+  });
+
+  $('btnClear').addEventListener('click', async () => {
+    if (!confirm('Очистить корзину?')) return;
+    haptic('heavy');
+    try {
+      await api(`/api/items?user_id=${USER_ID}&list_owner_id=${currentListOwnerId}`, { method: 'DELETE' });
+      await loadList(true);
+    } catch (e) { showStatus(e.message); }
+  });
+</script>
+</body>
+</html>
