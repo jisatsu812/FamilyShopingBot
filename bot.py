@@ -1,5 +1,3 @@
-from dotenv import load_dotenv
-load_dotenv()
 import asyncio
 import os
 
@@ -9,12 +7,15 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from fastapi import FastAPI
 from pydantic import BaseModel
+from dotenv import load_dotenv
 
-BOT_TOKEN = "8423951970:AAHvjrXMbdbwgipFvZJ1xURCnMc8BcSvJlU"
-WEBAPP_URL = "https://dazzler-shelving-capillary.ngrok-free.dev"
+# Загружаем переменные из .env
+load_dotenv()
 
-# Telegram ID админа. Узнай свой ID (например, через @userinfobot) и впиши сюда.
-ADMIN_ID = int(os.getenv("ADMIN_ID", "784580949"))  # 0 = не задан
+# Берем токены из переменных окружения
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+WEBAPP_URL = os.getenv("WEBAPP_URL")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 if not BOT_TOKEN:
     raise RuntimeError("Токен не указан")
@@ -25,19 +26,16 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 notify_app = FastAPI(title="Family Shopping Bot Notifications")
 
-
 class NotifyData(BaseModel):
     receiver_id: int
     sender_name: str
     is_group: bool = False
-
 
 class FeedbackData(BaseModel):
     user_id: int
     username: str | None = None
     first_name: str | None = None
     text: str
-
 
 @notify_app.post("/api/notify_invite")
 async def notify_invite(data: NotifyData):
@@ -58,13 +56,10 @@ async def notify_invite(data: NotifyData):
         print(f"Не удалось отправить уведомление пользователю {data.receiver_id}: {exc}")
         return {"status": "error", "detail": "Не удалось отправить сообщение"}
 
-
 @notify_app.post("/api/notify_feedback")
 async def notify_feedback(data: FeedbackData):
     if not ADMIN_ID:
-        print("ADMIN_ID не задан — отзыв не отправлен.")
         return {"status": "error", "detail": "ADMIN_ID не задан"}
-
     username_line = f"@{data.username}" if data.username else "—"
     text = (
         "📝 <b>Новый отзыв</b>\n\n"
@@ -80,7 +75,6 @@ async def notify_feedback(data: FeedbackData):
         print(f"Не удалось отправить отзыв админу {ADMIN_ID}: {exc}")
         return {"status": "error", "detail": str(exc)}
 
-
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
@@ -95,12 +89,15 @@ async def start_cmd(message: types.Message):
         reply_markup=keyboard,
     )
 
-
 async def main():
+    # Render сам выдает порт через переменную окружения PORT.
+    # Если её нет (локальный запуск), используем 8080.
+    port = int(os.getenv("PORT", 8080))
+    
     config = uvicorn.Config(
         notify_app,
-        host="127.0.0.1",
-        port=8080,
+        host="0.0.0.0",  # Важно: слушаем все интерфейсы для облака
+        port=port,
         log_level="warning",
     )
     server = uvicorn.Server(config)
@@ -111,7 +108,6 @@ async def main():
         server.should_exit = True
         await server_task
         await bot.session.close()
-
 
 if __name__ == "__main__":
     asyncio.run(main())

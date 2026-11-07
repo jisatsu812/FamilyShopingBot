@@ -12,6 +12,15 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import os
+import sqlite3
+from contextlib import contextmanager
+from typing import Optional
+from dotenv import load_dotenv # <--- ДОБАВИТЬ ЭТО
+
+load_dotenv()
+import httpx
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.getenv("SHOPPING_DB_PATH", os.path.join(BASE_DIR, "shopping.db"))
 BOT_NOTIFY_URL = os.getenv("BOT_NOTIFY_URL", "http://127.0.0.1:8080/api/notify_invite")
