@@ -74,7 +74,6 @@ async def start_cmd(message: types.Message):
         reply_markup=keyboard,
     )
 
-# Эндпоинт, куда Telegram будет присылать сообщения
 @notify_app.post("/webhook")
 async def telegram_webhook(request: Request):
     data = await request.json()
@@ -83,10 +82,20 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 async def main():
-        await bot.delete_webhook(drop_pending_updates=True)
+    port = int(os.getenv("PORT", 8080))
+    webhook_url = os.getenv("WEBHOOK_URL", "https://familyshopingbot.onrender.com")
+    
+    # Сначала удаляем старый вебхук
+    await bot.delete_webhook(drop_pending_updates=True)
+    # Устанавливаем новый
     await bot.set_webhook(f"{webhook_url}/webhook")
     
-    config = uvicorn.Config(...)
+    config = uvicorn.Config(
+        notify_app,
+        host="0.0.0.0",
+        port=port,
+        log_level="info",
+    )
     server = uvicorn.Server(config)
     await server.serve()
 
