@@ -83,20 +83,10 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 async def main():
-    port = int(os.getenv("PORT", 8080))
-    # Render сам подставит свой URL, если мы укажем переменную WEBHOOK_URL
-    webhook_url = os.getenv("WEBHOOK_URL", "https://familyshopingbot.onrender.com")
-    
-    # Удаляем старые вебхуки и ставим новый
-    await bot.delete_webhook(drop_pending_updates=True)
+        await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_webhook(f"{webhook_url}/webhook")
     
-    config = uvicorn.Config(
-        notify_app,
-        host="0.0.0.0",
-        port=port,
-        log_level="info",
-    )
+    config = uvicorn.Config(...)
     server = uvicorn.Server(config)
     await server.serve()
 
