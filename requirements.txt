@@ -1,5 +1,4 @@
-aiogram>=3.0
-fastapi
-uvicorn[standard]
-httpx
-python-dotenv
+fastapi>=0.110
+uvicorn[standard]>=0.29
+aiogram>=3.4,<4
+python-dotenv>=1.0

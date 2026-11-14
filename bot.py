@@ -1,103 +1,89 @@
-import asyncio
+"""Телеграм-бот (aiogram 3).
+
+Отдельно запускать не нужно: бот подключается из main.py и работает в одном процессе с API.
+Локально (без WEBHOOK_URL / RENDER_EXTERNAL_URL) бот работает через polling,
+на хостинге (Render) — через вебхук.
+"""
+import hashlib
+import html
 import os
 
-import uvicorn
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, Update
-from fastapi import FastAPI, Request
-from pydantic import BaseModel
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from dotenv import load_dotenv
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBAPP_URL = os.getenv("WEBAPP_URL", "https://familyshopingbot.onrender.com/")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-
 if not BOT_TOKEN:
-    raise RuntimeError("Токен не указан")
+    raise RuntimeError("Токен не указан: добавь BOT_TOKEN в .env или в переменные окружения")
+
+ADMIN_ID = int(os.getenv("ADMIN_ID") or 0)
+
+# Публичный адрес сервиса. На Render RENDER_EXTERNAL_URL задаётся автоматически.
+# Если пусто (локальный запуск) — бот работает через polling.
+PUBLIC_URL = (os.getenv("WEBHOOK_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").rstrip("/")
+
+# Адрес, который открывается по кнопке в Telegram
+WEBAPP_URL = os.getenv("WEBAPP_URL") or PUBLIC_URL or "https://familyshopingbot.onrender.com"
+
+# Секрет, по которому main.py проверяет, что вебхук дёргает именно Telegram
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET") or hashlib.sha256(BOT_TOKEN.encode()).hexdigest()
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-notify_app = FastAPI(title="Family Shopping Bot Notifications")
 
-class NotifyData(BaseModel):
-    receiver_id: int
-    sender_name: str
-    is_group: bool = False
 
-class FeedbackData(BaseModel):
-    user_id: int
-    username: str | None = None
-    first_name: str | None = None
-    text: str
-
-@notify_app.post("/api/notify_invite")
-async def notify_invite(data: NotifyData):
-    text = f"👋 {data.sender_name} приглашает тебя в совместную корзину!"
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Посмотреть приглашение", web_app=WebAppInfo(url=WEBAPP_URL))
+def _open_app_keyboard(text: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=text, web_app=WebAppInfo(url=WEBAPP_URL))
     ]])
-    try:
-        await bot.send_message(data.receiver_id, text, reply_markup=keyboard)
-        return {"status": "ok"}
-    except Exception as exc:
-        return {"status": "error", "detail": str(exc)}
 
-@notify_app.post("/api/notify_feedback")
-async def notify_feedback(data: FeedbackData):
-    if not ADMIN_ID:
-        return {"status": "error", "detail": "ADMIN_ID не задан"}
-    username_line = f"@{data.username}" if data.username else "—"
-    text = (
-        "📝 <b>Новый отзыв</b>\n\n"
-        f"👤 Имя: {data.first_name or '—'}\n"
-        f"🔗 Username: {username_line}\n"
-        f"🆔 ID: <code>{data.user_id}</code>\n\n"
-        f"💬 Текст:\n{data.text}"
-    )
-    try:
-        await bot.send_message(ADMIN_ID, text, parse_mode="HTML")
-        return {"status": "ok"}
-    except Exception as exc:
-        return {"status": "error", "detail": str(exc)}
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🛒 Открыть список покупок", web_app=WebAppInfo(url=WEBAPP_URL))
-    ]])
     first_name = message.from_user.first_name or "друг"
     await message.answer(
         f"Привет, {first_name}! 👋\n\nНажми кнопку ниже, чтобы открыть семейный список покупок.",
-        reply_markup=keyboard,
+        reply_markup=_open_app_keyboard("🛒 Открыть список покупок"),
     )
 
-@notify_app.post("/webhook")
-async def telegram_webhook(request: Request):
-    data = await request.json()
-    update = Update.model_validate(data, context={"bot": bot})
-    await dp.feed_update(bot, update)
-    return {"ok": True}
 
-async def main():
-    port = int(os.getenv("PORT", 8080))
-    webhook_url = os.getenv("WEBHOOK_URL", "https://familyshopingbot.onrender.com")
-    
-    # Сначала удаляем старый вебхук
-    await bot.delete_webhook(drop_pending_updates=True)
-    # Устанавливаем новый
-    await bot.set_webhook(f"{webhook_url}/webhook")
-    
-    config = uvicorn.Config(
-        notify_app,
-        host="0.0.0.0",
-        port=port,
-        log_level="info",
+async def notify_invite(receiver_id: int, sender_name: str) -> bool:
+    """Шлёт получателю уведомление о приглашении. True — если доставлено."""
+    try:
+        await bot.send_message(
+            receiver_id,
+            f"👋 {sender_name} приглашает тебя в совместную корзину!",
+            reply_markup=_open_app_keyboard("Посмотреть приглашение"),
+        )
+        return True
+    except Exception as exc:
+        print(f"Не удалось отправить уведомление {receiver_id}: {exc}")
+        return False
+
+
+async def notify_feedback(user_id: int, username: str | None, first_name: str | None, text: str) -> bool:
+    """Пересылает отзыв админу. True — если доставлено."""
+    if not ADMIN_ID:
+        print("ADMIN_ID не задан — отзыв некуда отправить")
+        return False
+    username_line = f"@{html.escape(username)}" if username else "—"
+    message = (
+        "📝 <b>Новый отзыв</b>\n\n"
+        f"👤 Имя: {html.escape(first_name) if first_name else '—'}\n"
+        f"🔗 Username: {username_line}\n"
+        f"🆔 ID: <code>{user_id}</code>\n\n"
+        f"💬 Текст:\n{html.escape(text)}"
     )
-    server = uvicorn.Server(config)
-    await server.serve()
+    try:
+        await bot.send_message(ADMIN_ID, message, parse_mode="HTML")
+        return True
+    except Exception as exc:
+        print(f"Не удалось отправить отзыв админу: {exc}")
+        return False
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    print("Бот запускается вместе с API. Запускай:  python main.py  (или  uvicorn main:app --port 8000)")
